@@ -43,13 +43,13 @@ public class AccountController {
     @GetMapping("/{accountNumber}")
     public ResponseEntity<AccountResponse> getAccountByAccountNumber(@PathVariable String accountNumber) {
         Account account = accountService.getAccount(accountNumber);
-        return ResponseEntity.ok(new AccountResponse(account.getAccountNumber(), account.getBalance()));
+        return ResponseEntity.ok(new AccountResponse(account.getAccountNumber(), account.getBalance(), account.getCustomerId()));
     }
 
     @GetMapping("/{accountNumber}/balance")
     public ResponseEntity<AccountResponse> getBalance(@PathVariable String accountNumber) {
-        Double balance = accountService.getBalance(accountNumber);
-        return ResponseEntity.ok(new AccountResponse(accountNumber, balance));
+        Account account = accountService.getAccount(accountNumber);
+        return ResponseEntity.ok(new AccountResponse(accountNumber, account.getBalance(), account.getCustomerId()));
     }
 
     @PutMapping("/{accountNumber}/debit")
@@ -61,7 +61,8 @@ public class AccountController {
         return ResponseEntity.ok(new AccountResponse(
                 updatedAccount.getAccountNumber(),
                 updatedAccount.getBalance(),
-                "Debit successful"
+                "Debit successful",
+                updatedAccount.getCustomerId()
         ));
     }
 
@@ -74,7 +75,8 @@ public class AccountController {
         return ResponseEntity.ok(new AccountResponse(
                 updatedAccount.getAccountNumber(),
                 updatedAccount.getBalance(),
-                "Credit successful"
+                "Credit successful",
+                updatedAccount.getCustomerId()
         ));
     }
 

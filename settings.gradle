@@ -1,7 +1,8 @@
-rootProject.name = 'SS07-Bai03'
+rootProject.name = 'SS07-Bai04'
 
 include 'eureka-server'
 include 'api-gateway'
 include 'account-service'
 include 'transaction-service'
 include 'customer-service'
+

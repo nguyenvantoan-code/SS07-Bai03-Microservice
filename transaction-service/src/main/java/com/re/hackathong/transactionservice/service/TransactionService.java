@@ -1,23 +1,15 @@
 package com.re.hackathong.transactionservice.service;
 
-import com.re.hackathong.transactionservice.dto.AccountDto;
-import com.re.hackathong.transactionservice.dto.AmountRequest;
-import com.re.hackathong.transactionservice.dto.TransferRequest;
-import com.re.hackathong.transactionservice.dto.TransferResponse;
+import com.re.hackathong.transactionservice.client.AccountServiceClient;
+import com.re.hackathong.transactionservice.client.CustomerServiceClient;
+import com.re.hackathong.transactionservice.dto.*;
 import com.re.hackathong.transactionservice.model.Transaction;
 import com.re.hackathong.transactionservice.model.TransactionStatus;
 import com.re.hackathong.transactionservice.repository.TransactionRepository;
+import feign.FeignException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.web.client.HttpServerErrorException;
-import org.springframework.web.client.ResourceAccessException;
-import org.springframework.web.client.RestTemplate;
 
 import java.util.List;
 
@@ -25,18 +17,23 @@ import java.util.List;
 public class TransactionService {
 
     private static final Logger log = LoggerFactory.getLogger(TransactionService.class);
-    private static final String ACCOUNT_SERVICE_URL = "http://account-service/api/accounts/";
 
-    private final RestTemplate restTemplate;
+    private final AccountServiceClient accountServiceClient;
+    private final CustomerServiceClient customerServiceClient;
     private final TransactionRepository transactionRepository;
 
-    public TransactionService(RestTemplate restTemplate, TransactionRepository transactionRepository) {
-        this.restTemplate = restTemplate;
+    public TransactionService(
+            AccountServiceClient accountServiceClient,
+            CustomerServiceClient customerServiceClient,
+            TransactionRepository transactionRepository
+    ) {
+        this.accountServiceClient = accountServiceClient;
+        this.customerServiceClient = customerServiceClient;
         this.transactionRepository = transactionRepository;
     }
 
     public TransferResponse transfer(TransferRequest request) {
-        // Validation cơ bản
+        // 1. Validation đầu vào cơ bản
         if (request.getFromAccountNumber() == null || request.getFromAccountNumber().trim().isEmpty()) {
             return recordFailedTransaction(request, "fromAccountNumber is required");
         }
@@ -54,84 +51,73 @@ public class TransactionService {
         String toAcc = request.getToAccountNumber().trim();
         Double amount = request.getAmount();
 
-        // Bước 2: Kiểm tra tài khoản nguồn
-        AccountDto sourceAccount;
+        // 2. Kiểm tra tài khoản nguồn qua AccountServiceClient
+        AccountResponse sourceAccount;
         try {
-            sourceAccount = restTemplate.getForObject(ACCOUNT_SERVICE_URL + fromAcc, AccountDto.class);
+            sourceAccount = accountServiceClient.getAccount(fromAcc);
             if (sourceAccount == null) {
                 return recordFailedTransaction(request, "Source account not found");
             }
-        } catch (HttpClientErrorException.NotFound e) {
-            log.warn("Source account not found: {}", fromAcc);
+        } catch (FeignException.NotFound e) {
+            log.warn("Source account not found via Feign: {}", fromAcc);
             return recordFailedTransaction(request, "Source account not found");
-        } catch (ResourceAccessException e) {
-            log.error("Account service is unavailable when fetching source account", e);
+        } catch (FeignException e) {
+            log.error("Account service error when fetching source account", e);
             return recordFailedTransaction(request, "Account Service is unavailable");
         } catch (Exception e) {
-            log.error("Error fetching source account: {}", e.getMessage());
+            log.error("Unexpected error fetching source account", e);
             return recordFailedTransaction(request, "Error communicating with Account Service");
         }
 
-        // Bước 3: Kiểm tra tài khoản đích
+        // 3. Kiểm tra tài khoản đích qua AccountServiceClient
         try {
-            AccountDto destAccount = restTemplate.getForObject(ACCOUNT_SERVICE_URL + toAcc, AccountDto.class);
+            AccountResponse destAccount = accountServiceClient.getAccount(toAcc);
             if (destAccount == null) {
                 return recordFailedTransaction(request, "Destination account not found");
             }
-        } catch (HttpClientErrorException.NotFound e) {
-            log.warn("Destination account not found: {}", toAcc);
+        } catch (FeignException.NotFound e) {
+            log.warn("Destination account not found via Feign: {}", toAcc);
             return recordFailedTransaction(request, "Destination account not found");
-        } catch (ResourceAccessException e) {
-            log.error("Account service is unavailable when fetching destination account", e);
+        } catch (FeignException e) {
+            log.error("Account service error when fetching destination account", e);
             return recordFailedTransaction(request, "Account Service is unavailable");
         } catch (Exception e) {
-            log.error("Error fetching destination account: {}", e.getMessage());
+            log.error("Unexpected error fetching destination account", e);
             return recordFailedTransaction(request, "Error communicating with Account Service");
         }
 
-        // Bước 4: Kiểm tra số dư tài khoản nguồn
+        // 4. Kiểm tra số dư tài khoản nguồn
         if (sourceAccount.getBalance() == null || sourceAccount.getBalance() < amount) {
             log.warn("Insufficient balance for account {}. Current: {}, Required: {}",
                     fromAcc, sourceAccount.getBalance(), amount);
             return recordFailedTransaction(request, "Insufficient balance");
         }
 
-        // Bước 5: Thực hiện debit tài khoản nguồn và credit tài khoản đích
+        // 5. Thực hiện debit tài khoản nguồn và credit tài khoản đích qua FeignClient
         try {
-            // Debit tài khoản nguồn
             AmountRequest amountRequest = new AmountRequest(amount);
-            HttpEntity<AmountRequest> debitEntity = new HttpEntity<>(amountRequest);
-            ResponseEntity<AccountDto> debitResponse = restTemplate.exchange(
-                    ACCOUNT_SERVICE_URL + fromAcc + "/debit",
-                    HttpMethod.PUT,
-                    debitEntity,
-                    AccountDto.class
-            );
 
-            if (debitResponse.getStatusCode() != HttpStatus.OK) {
+            // Debit tài khoản nguồn
+            AccountResponse debitResponse = accountServiceClient.debit(fromAcc, amountRequest);
+            if (debitResponse == null) {
                 return recordFailedTransaction(request, "Debit operation failed on source account");
             }
 
             // Credit tài khoản đích
-            HttpEntity<AmountRequest> creditEntity = new HttpEntity<>(amountRequest);
-            ResponseEntity<AccountDto> creditResponse = restTemplate.exchange(
-                    ACCOUNT_SERVICE_URL + toAcc + "/credit",
-                    HttpMethod.PUT,
-                    creditEntity,
-                    AccountDto.class
-            );
-
-            if (creditResponse.getStatusCode() != HttpStatus.OK) {
-                // Hoàn tiền cho tài khoản nguồn nếu credit thất bại
-                try {
-                    restTemplate.exchange(ACCOUNT_SERVICE_URL + fromAcc + "/credit", HttpMethod.PUT, debitEntity, AccountDto.class);
-                } catch (Exception ex) {
-                    log.error("Critical: Failed to compensate debit on {}", fromAcc, ex);
+            try {
+                AccountResponse creditResponse = accountServiceClient.credit(toAcc, amountRequest);
+                if (creditResponse == null) {
+                    // Bù tiền (compensate) nếu credit trả về null
+                    compensateDebit(fromAcc, amountRequest);
+                    return recordFailedTransaction(request, "Credit operation failed on destination account");
                 }
+            } catch (Exception ex) {
+                log.error("Error during credit to destination account {}. Compensating debit...", toAcc, ex);
+                compensateDebit(fromAcc, amountRequest);
                 return recordFailedTransaction(request, "Credit operation failed on destination account");
             }
 
-            // Bước 6: Lưu transaction SUCCESS
+            // 6. Lưu transaction SUCCESS
             Transaction tx = new Transaction(
                     null,
                     fromAcc,
@@ -142,7 +128,7 @@ public class TransactionService {
                     null
             );
             Transaction saved = transactionRepository.save(tx);
-            log.info("Transfer successful. Transaction ID: {}", saved.getId());
+            log.info("Transfer successful via FeignClient. Transaction ID: {}", saved.getId());
 
             return TransferResponse.success(
                     saved.getId(),
@@ -152,18 +138,26 @@ public class TransactionService {
                     "Transfer successful"
             );
 
-        } catch (HttpClientErrorException e) {
-            log.error("Client error during debit/credit: {}", e.getResponseBodyAsString());
-            if (e.getStatusCode() == HttpStatus.BAD_REQUEST && e.getResponseBodyAsString().contains("Insufficient balance")) {
+        } catch (FeignException.BadRequest e) {
+            log.error("Bad request during debit/credit: {}", e.contentUTF8());
+            if (e.contentUTF8() != null && e.contentUTF8().contains("Insufficient balance")) {
                 return recordFailedTransaction(request, "Insufficient balance");
             }
             return recordFailedTransaction(request, "Transaction rejected by Account Service");
-        } catch (ResourceAccessException e) {
-            log.error("Account service unavailable during debit/credit", e);
+        } catch (FeignException e) {
+            log.error("Account service error during debit/credit", e);
             return recordFailedTransaction(request, "Account Service is unavailable");
         } catch (Exception e) {
             log.error("Unexpected error during transfer", e);
             return recordFailedTransaction(request, "Transfer failed: " + e.getMessage());
+        }
+    }
+
+    private void compensateDebit(String fromAcc, AmountRequest amountRequest) {
+        try {
+            accountServiceClient.credit(fromAcc, amountRequest);
+        } catch (Exception ex) {
+            log.error("CRITICAL: Failed to compensate debit on {}", fromAcc, ex);
         }
     }
 
@@ -187,5 +181,40 @@ public class TransactionService {
 
     public Transaction getTransactionById(Long id) {
         return transactionRepository.findById(id).orElse(null);
+    }
+
+    public TransactionDetailResponse getTransactionDetail(Long id) {
+        Transaction tx = transactionRepository.findById(id).orElse(null);
+        if (tx == null) {
+            return null;
+        }
+
+        CustomerResponse customer = null;
+        try {
+            // Lấy thông tin tài khoản nguồn từ Account Service
+            AccountResponse sourceAccount = accountServiceClient.getAccount(tx.getFromAccountNumber());
+            Long customerId = (sourceAccount != null && sourceAccount.getCustomerId() != null)
+                    ? sourceAccount.getCustomerId()
+                    : 1L;
+
+            // Gọi Customer Service qua FeignClient để lấy thông tin khách hàng
+            customer = customerServiceClient.getCustomer(customerId);
+        } catch (FeignException.NotFound e) {
+            log.warn("Customer or account not found for transaction id: {}", id);
+        } catch (FeignException e) {
+            log.error("Error communicating with microservice for transaction detail: {}", e.getMessage());
+        } catch (Exception e) {
+            log.error("Unexpected error retrieving customer for transaction detail", e);
+        }
+
+        return new TransactionDetailResponse(
+                tx.getId(),
+                tx.getFromAccountNumber(),
+                tx.getToAccountNumber(),
+                tx.getAmount(),
+                tx.getDescription(),
+                tx.getStatus() != null ? tx.getStatus().name() : null,
+                customer
+        );
     }
 }

@@ -1,5 +1,6 @@
 package com.re.hackathong.transactionservice.controller;
 
+import com.re.hackathong.transactionservice.dto.TransactionDetailResponse;
 import com.re.hackathong.transactionservice.dto.TransferRequest;
 import com.re.hackathong.transactionservice.dto.TransferResponse;
 import com.re.hackathong.transactionservice.model.Transaction;
@@ -55,5 +56,17 @@ public class TransactionController {
             return ResponseEntity.status(404).body(error);
         }
         return ResponseEntity.ok(transaction);
+    }
+
+    @GetMapping("/{id}/detail")
+    public ResponseEntity<?> getTransactionDetail(@PathVariable Long id) {
+        TransactionDetailResponse detail = transactionService.getTransactionDetail(id);
+        if (detail == null) {
+            Map<String, Object> error = new LinkedHashMap<>();
+            error.put("status", "FAILED");
+            error.put("message", "Transaction not found: " + id);
+            return ResponseEntity.status(404).body(error);
+        }
+        return ResponseEntity.ok(detail);
     }
 }

@@ -1,4 +1,4 @@
-package com.re.hackathong.accountservice.dto;
+package com.re.hackathong.transactionservice.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 

@@ -18,8 +18,8 @@ public class InMemoryAccountRepository implements AccountRepository {
 
     @PostConstruct
     public void initData() {
-        save(new Account(idGenerator.getAndIncrement(), "1001", 10000000.0));
-        save(new Account(idGenerator.getAndIncrement(), "1002", 5000000.0));
+        save(new Account(idGenerator.getAndIncrement(), "1001", 10000000.0, 1L));
+        save(new Account(idGenerator.getAndIncrement(), "1002", 5000000.0, 2L));
     }
 
     @Override
@@ -34,6 +34,9 @@ public class InMemoryAccountRepository implements AccountRepository {
     public Account save(Account account) {
         if (account.getId() == null) {
             account.setId(idGenerator.getAndIncrement());
+        }
+        if (account.getCustomerId() == null) {
+            account.setCustomerId(1L);
         }
         accounts.put(account.getAccountNumber(), account);
         return account;

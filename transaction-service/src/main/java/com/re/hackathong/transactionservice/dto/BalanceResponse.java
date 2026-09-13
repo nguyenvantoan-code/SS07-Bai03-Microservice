@@ -1,34 +1,25 @@
-package com.re.hackathong.accountservice.model;
+package com.re.hackathong.transactionservice.dto;
 
-public class Account {
-    private Long id;
+import com.fasterxml.jackson.annotation.JsonInclude;
+
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public class BalanceResponse {
     private String accountNumber;
     private Double balance;
     private Long customerId;
 
-    public Account() {
+    public BalanceResponse() {
     }
 
-    public Account(Long id, String accountNumber, Double balance) {
-        this.id = id;
+    public BalanceResponse(String accountNumber, Double balance) {
         this.accountNumber = accountNumber;
         this.balance = balance;
-        this.customerId = 1L;
     }
 
-    public Account(Long id, String accountNumber, Double balance, Long customerId) {
-        this.id = id;
+    public BalanceResponse(String accountNumber, Double balance, Long customerId) {
         this.accountNumber = accountNumber;
         this.balance = balance;
         this.customerId = customerId;
-    }
-
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
     }
 
     public String getAccountNumber() {
@@ -53,15 +44,5 @@ public class Account {
 
     public void setCustomerId(Long customerId) {
         this.customerId = customerId;
-    }
-
-    @Override
-    public String toString() {
-        return "Account{" +
-                "id=" + id +
-                ", accountNumber='" + accountNumber + '\'' +
-                ", balance=" + balance +
-                ", customerId=" + customerId +
-                '}';
     }
 }
